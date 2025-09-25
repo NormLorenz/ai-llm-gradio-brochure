@@ -6,7 +6,6 @@ import google.generativeai
 import gradio as gr
 from bs4 import BeautifulSoup
 import requests
-from typing import List
 
 
 # Load environment variables in a file called .env
@@ -65,21 +64,8 @@ def main() -> None:
     view.launch(inbrowser=True)
 
 
-# def stream_brochure(company_name, url, model):
-#     yield ""
-#     prompt = f"Please generate a company brochure for {company_name}. Here is their landing page:\n"
-#     prompt += Website(url).get_contents()
-#     if model == "GPT":
-#         result = stream_gpt(prompt)
-#     elif model == "Claude":
-#         result = stream_claude(prompt)
-#     else:
-#         raise ValueError("Unknown model")
-#     yield from result
-
-
 def select_model(company_name: str, url: str, model: str):
-    # yield
+    yield ""
     prompt = f"Please generate a company brochure for {company_name}. Here is their landing page:\n"
     prompt += Website(url).get_contents()
     if model == "gpt-4o-mini":
@@ -92,39 +78,63 @@ def select_model(company_name: str, url: str, model: str):
         result = call_gemini(prompt, model)
     else:
         raise ValueError("Unknown model")
-    # yield from result
+    yield from result
 
 
 def call_gpt(prompt: str, model: str):
+    # Prepare messages for OpenAI
     messages = [
         {"role": "system", "content": system_message},
         {"role": "user", "content": prompt}
     ]
-    response = openai.chat.completions.create(
+
+    # Call the OpenAI API with streaming
+    stream = openai.chat.completions.create(
         model=model,
         messages=messages,
+        stream=True
     )
-    return response.choices[0].message.content
+
+    # Stream the response back to the user
+    response = ""
+    for chunk in stream:
+        response += chunk.choices[0].delta.content or ""
+        yield response
 
 
 def call_claude(prompt: str, model: str):
+    # Prepare messages for Claude
     messages = [{"role": "user", "content": prompt}]
-    response = claude.messages.create(
+
+    # Call the Claude API with streaming
+    result = claude.messages.stream(
         model=model,
         system=system_message,
         messages=messages,
-        max_tokens=500
+        temperature=0.7,
+        max_tokens=1000
     )
-    return response.content[0].text
+
+    # Stream the response back to the user
+    response = ""
+    with result as stream:
+        for text in stream.text_stream:
+            response += text or ""
+            yield response
 
 
 def call_gemini(prompt: str, model: str):
+    # Call the Gemini API with streaming
     gemini = google.generativeai.GenerativeModel(
         model_name=model,
         system_instruction=system_message
     )
-    response = gemini.generate_content(prompt)
-    return response.text
+
+    # Stream the response back to the user
+    result = ""
+    for response in gemini.generate_content(prompt, stream=True):
+        result += response.text or ""
+        yield result
 
 
 if __name__ == "__main__":
